@@ -6,6 +6,25 @@ collectable_objects = [8]
 def rects_overlap(x, y, w, h, tx, ty, tw=1, th=1):
     return x < tx + tw and x + w > tx and y < ty + th and y + h > ty
 
+# Layers that tiles can live on. Lookups only check these keys instead of scanning the whole map.
+LAYERS = (1, 2, 3, 4)
+
+def find_collision_tile(grid, gx, gy):
+    # Returns (key, tile) of the solid tile at this cell, or (None, None). Only looks at this one cell.
+    found_key, found_tile = None, None
+    for l in LAYERS:
+        tile = grid.get((gx, gy, l))
+        if tile is not None and tile.tile_collision:
+            found_key, found_tile = (gx, gy, l), tile
+    return found_key, found_tile
+
+def has_flag(grid_2, gx, gy):
+    for l in LAYERS:
+        tile = grid_2.get((gx, gy, l))
+        if tile is not None and tile.tile_type == 3:
+            return True
+    return False
+
 def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
 
     bottom, top = False, False
@@ -18,10 +37,6 @@ def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
 
     collision_tile_type = None
 
-    collision_grid = {(gx, gy): tile for (gx, gy, _layer), tile in grid.items() if tile.tile_collision}
-
-    flag_grid = {(gx, gy): tile for (gx, gy, _layer), tile in grid_2.items() if tile.tile_type == 3}
-
     for gx in range(min_gx, max_gx + 1):
         for gy in range(min_gy, max_gy + 1):
 
@@ -29,11 +44,11 @@ def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
                 continue
 
             # Check for flags
-            if (gx, gy) in flag_grid:
+            if has_flag(grid_2, gx, gy):
                 flag_triggered = True
 
             # Check normal collisions
-            tile = collision_grid.get((gx, gy))
+            key, tile = find_collision_tile(grid, gx, gy)
             if tile is None:
                 continue
 
@@ -41,20 +56,14 @@ def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     bottom = True
                 else:
-                    for (kx, ky, kl), ctile in grid.items():
-                        if tile == ctile:
-                            del grid[(kx, ky, kl)]
-                            break
+                    grid.pop(key, None) # Collect it
                 collision_tile_type = tile.tile_type
 
             if gy + 1 <= y + 1:
                 if tile.tile_type not in collectable_objects:
                     top = True
                 else:
-                    for (kx, ky, kl), ctile in grid.items():
-                        if tile == ctile:
-                            del grid[(kx, ky, kl)]
-                            break
+                    grid.pop(key, None) # Collect it
                 collision_tile_type = tile.tile_type
 
     return bottom, top, collision_tile_type, flag_triggered
@@ -71,10 +80,6 @@ def check_collisions_with_grid_x(x, y, w, h, grid, grid_2):
 
     collision_tile_type = None
 
-    collision_grid = {(gx, gy): tile for (gx, gy, _layer), tile in grid.items() if tile.tile_collision}
-
-    flag_grid = {(gx, gy): tile for (gx, gy, _layer), tile in grid_2.items() if tile.tile_type == 3}
-
     for gx in range(min_gx, max_gx + 1):
         for gy in range(min_gy, max_gy + 1):
 
@@ -82,11 +87,11 @@ def check_collisions_with_grid_x(x, y, w, h, grid, grid_2):
                 continue
 
             # Check for flags
-            if (gx, gy) in flag_grid:
+            if has_flag(grid_2, gx, gy):
                 flag_triggered = True
 
             # Check normal collisions
-            tile = collision_grid.get((gx, gy))
+            key, tile = find_collision_tile(grid, gx, gy)
             if tile is None:
                 continue
 
@@ -94,21 +99,14 @@ def check_collisions_with_grid_x(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     right = True
                 else:
-                    for (kx, ky, kl), ctile in grid.items():
-                        if tile == ctile:
-                            del grid[(kx, ky, kl)]
-                            break
+                    grid.pop(key, None) # Collect it
                 collision_tile_type = tile.tile_type
 
             if gx + 1 <= x + 1:
                 if tile.tile_type not in collectable_objects:
                     left = True
                 else:
-                    for (kx, ky, kl), ctile in grid.items():
-                        if tile == ctile:
-                            del grid[(kx, ky, kl)]
-                            break
-                        
+                    grid.pop(key, None) # Collect it
                 collision_tile_type = tile.tile_type
 
     return left, right, collision_tile_type, flag_triggered
@@ -425,24 +423,30 @@ def render_play_grid(screen, grids, cam, tile_sprites, tile_size, currently_plac
             blit_y = (tile.y+offset_y) * tile_size - cam[1]
             screen.blit(block, (blit_x, blit_y))
 
+    # Only look at the cells that are on screen instead of looping over every tile in the map
+    first_x = math.floor(cam_x) - 1
+    last_x = math.ceil(cam_x + visible_tiles_x)
+    first_y = math.floor(cam_y) - 1
+    last_y = math.ceil(cam_y + visible_tiles_y)
 
-    layers = sorted({tile.layer for tile in grid.values()}) # Sorts all tiles in grid by layer
+    for layer in LAYERS: # Lower layers first
+        for ty in range(first_y, last_y + 1):
+            for tx in range(first_x, last_x + 1):
+                tile = grid.get((tx, ty, layer))
+                if tile is not None:
+                    render_action(tile)
 
-    for layer in layers: # For every layer in all layers 1-x
-        for tile in grid.values(): # Select tile
-            render_action(tile) # Render it
-        
-
-        if currently_placing != None: # Render grid 2 if placing tiles
-            for key, tile in grid_2.items():
-                render_action(tile)
-        else: # Special rendering behavior for tiles in grid 2
-            for key, tile in grid_2.items():
-                if tile.tile_type == 3: # If its a checkpoint flag
-                    if tile.x == checkpoint.x and tile.y == checkpoint.y:
-                        render_action(tile, 7)
-                    else:
-                        render_action(tile, 6)
+    # Grid 2 (checkpoint flags etc.) is small, so it is drawn on top in full
+    if currently_placing != None: # Render grid 2 if placing tiles
+        for key, tile in grid_2.items():
+            render_action(tile)
+    else: # Special rendering behavior for tiles in grid 2
+        for key, tile in grid_2.items():
+            if tile.tile_type == 3: # If its a checkpoint flag
+                if tile.x == checkpoint.x and tile.y == checkpoint.y:
+                    render_action(tile, 7)
+                else:
+                    render_action(tile, 6)
 
 def render_text(screen, font, text, offset_x=0, offset_y=0):
     text = font.render(text, True, (255,0,0), None)
