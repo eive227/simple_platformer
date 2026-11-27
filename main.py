@@ -1,5 +1,9 @@
-import pygame, os, math, time
+import pygame, os, math, time, sys, asyncio
 import functions as fn
+
+# True when running in the browser (Pyodide reports "emscripten")
+WEB = sys.platform == "emscripten"
+
 # If 1: is used in several places to allow for closing of code blocks to keep it neat
 if 1:  # Initiable variables
     pygame.init()
@@ -15,7 +19,11 @@ if 1:  # Initiable variables
     if screen_width <= 0 or screen_height <= 0:
         screen_width, screen_height = 960, 640
 
-    screen = pygame.display.set_mode((screen_width, screen_height),pygame.SCALED | pygame.RESIZABLE)
+    # In the browser the "monitor" size is meaningless, so use a fixed canvas size
+    if WEB:
+        screen_width, screen_height = 960, 640
+
+    screen = pygame.display.set_mode((screen_width, screen_height), pygame.SCALED | pygame.RESIZABLE)
 
     tile_size = screen.get_width() // grid_size
     grid, grid_2 = {}, {} # grid 1 and grid 2, grid 2 is meant for non visible tiles 
@@ -27,13 +35,17 @@ if 1:  # Initiable variables
     device_button_interaction = 0
     pygame.display.set_caption("Game") # Sets the window name
     clock = pygame.time.Clock()
-    file_path = os.path.dirname(os.path.abspath(__file__)) # File path for the current file, used to load images from the correct directory
+    # File path for the current file, used to load images from the correct directory
+    try:
+        file_path = os.path.dirname(os.path.abspath(__file__))
+    except NameError:  # __file__ may not exist depending on how the web runner starts the script
+        file_path = os.getcwd()
     gui_state = None
     currently_placing, placement_queue = None, None
     tile_layer_data = [] # Defined in tile loading
     checkpoint = None # Checkpoint for player respawn
     moveable_objects = []
-    font = pygame.font.Font('freesansbold.ttf', 32)
+    font = pygame.font.Font(None, 32) # None = pygame's built-in default font (works on desktop and web)
     tick = 0
     particles = [] # List to hold particle objects
     checkpoint_progression = [[], 0] # Checkpoint coordinates, counter
@@ -259,7 +271,6 @@ with open(os.path.join(file_path, "mapcode.txt"), "r") as f:
     for line in f:
         map_code = line.strip()  # Read the map code from the file
         break  # Exit the loop after reading the first line
-    f.close()
 
 #grid = fn.make_grid(grid, 16, 16, map_tile)
 grid, grid_2 = fn.load_map(map_code, map_tile)
@@ -299,150 +310,166 @@ def adjust_tile_size():
 
 
 # Main loop
-running = True
-device_selection_screen = True
-while device_selection_screen:
-    clock.tick(60)
-    screen.fill((40,40,40))
-    events = pygame.event.get()
-    fn.render_text(screen, font, "Please Select Device", offset_x=screen.get_width()*0.3, offset_y=screen.get_height()*0.2)
-    device_button_interaction = fn.device_buttons(screen, tile_size, assets, device_button_interaction, events)
-    if device_button_interaction in ("phone", "desktop"):
-        device_selection_screen = False
-        break
+# The loops live inside an async function so the browser gets control back every frame
+# (that is what `await asyncio.sleep(0)` does). Variables that are reassigned inside the loops
+# and also used elsewhere in the file are declared global.
+async def main():
+    global screen, cam, checkpoint, tick, tile_size, mouse, moveable_objects
+    global gui_state, currently_placing, placement_queue, layer
+    global checkpoint_progression, device_button_interaction
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+    running = True
+    device_selection_screen = True
+    while device_selection_screen:
+        clock.tick(60)
+        screen.fill((40,40,40))
+        events = pygame.event.get()
+        fn.render_text(screen, font, "Please Select Device", offset_x=screen.get_width()*0.3, offset_y=screen.get_height()*0.2)
+        device_button_interaction = fn.device_buttons(screen, tile_size, assets, device_button_interaction, events)
+        if device_button_interaction in ("phone", "desktop"):
             device_selection_screen = False
             break
 
-        elif event.type == pygame.VIDEORESIZE:
-            screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
+        for event in events: # Was a second pygame.event.get(), which always came back empty
+            if event.type == pygame.QUIT:
+                running = False
+                device_selection_screen = False
+                break
 
-    adjust_tile_size()
-    pygame.display.flip()
+            elif event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
 
-while running:
-    clock.tick(60)  # Limit the frame rate to 60 FPS
-    tick+=1
-    grids = (grid, grid_2) # Bundle grid layers (bad system but i dont need many layers)
-    keys = pygame.key.get_pressed() # Get key presses
-    touch_points = {}
-    touch_controls = {}
-    events = pygame.event.get()
+        adjust_tile_size()
+        pygame.display.flip()
+        await asyncio.sleep(0)  # Hand control back to the browser
 
-
-    # Functions calls
-    checkpoint_binder = (checkpoint, checkpoints, checkpoint_progression)
-    mouse = fn.mousebinderfunction(mouse, mouse_action_repeat, grids, tile_size, cam, map_tile, currently_placing, tile_layer_data, layer, checkpoint_binder)
-
-    fn.render_play_grid(screen, grids, cam, tile, tile_size, currently_placing, checkpoint) # Render map based on grid
-
-    fn.render_particles(screen, particles, cam, tile_size) # Render particles
-    if device_button_interaction == "phone":
-        touch_controls = fn.phone_controls(screen, events, touch_points, font)
-    else:
+    while running:
+        clock.tick(60)  # Limit the frame rate to 60 FPS
+        tick+=1
+        grids = (grid, grid_2) # Bundle grid layers (bad system but i dont need many layers)
+        keys = pygame.key.get_pressed() # Get key presses
+        touch_points = {}
         touch_controls = {}
+        events = pygame.event.get()
 
-    moveable_objects, cam, checkpoint = fn.handle_player_actions(moveable_objects, keys, screen, grids, tile_size, player_tile, cam, checkpoint_binder, collectables, touch_controls)
 
-    placement_queue, close_gui = fn.render_gui(gui_state, screen, tile, mouse_action_repeat, currently_placing, placement_queue, tile_size) # Renders the gui and returns if it should be closed
+        # Functions calls
+        checkpoint_binder = (checkpoint, checkpoints, checkpoint_progression)
+        mouse = fn.mousebinderfunction(mouse, mouse_action_repeat, grids, tile_size, cam, map_tile, currently_placing, tile_layer_data, layer, checkpoint_binder)
 
-    fn.render_ghost_tile(gui_state, screen, tile, mouse, currently_placing, cam, tile_size)
+        fn.render_play_grid(screen, grids, cam, tile, tile_size, currently_placing, checkpoint) # Render map based on grid
 
-    placement_queue, currently_placing = fn.placement_queue(placement_queue, currently_placing, mouse_action_repeat) # Handles the queue
+        fn.render_particles(screen, particles, cam, tile_size) # Render particles
+        if device_button_interaction == "phone":
+            touch_controls = fn.phone_controls(screen, events, touch_points, font)
+        else:
+            touch_controls = {}
 
-    if close_gui == True: # closes guis
-        gui_state = None
-        close_gui = False
+        moveable_objects, cam, checkpoint = fn.handle_player_actions(moveable_objects, keys, screen, grids, tile_size, player_tile, cam, checkpoint_binder, collectables, touch_controls)
 
-    # Key presses
-    if 1: # if state is just so that i can close this
-        if keys[pygame.K_SPACE]: # Handle space bar presses
-            # Toggle map tile selector gui
-            if gui_state == None and not key_action_repeat["space"]:
-                gui_state = "map_tile_selector"
-                key_action_repeat["space"] = True
+        placement_queue, close_gui = fn.render_gui(gui_state, screen, tile, mouse_action_repeat, currently_placing, placement_queue, tile_size) # Renders the gui and returns if it should be closed
 
-            elif gui_state == "map_tile_selector" and not key_action_repeat["space"]:
-                gui_state = None
-                key_action_repeat["space"] = True
+        fn.render_ghost_tile(gui_state, screen, tile, mouse, currently_placing, cam, tile_size)
 
-        if keys[pygame.K_ESCAPE]: # Quit if escape is pressed
-            running = False
-            break
+        placement_queue, currently_placing = fn.placement_queue(placement_queue, currently_placing, mouse_action_repeat) # Handles the queue
 
-        if keys[pygame.K_p]: # Send map code
-            print("code")
-            print(fn.save_map(grids))
-            print("code")
+        if close_gui == True: # closes guis
+            gui_state = None
+            close_gui = False
 
-        if keys[pygame.K_i]: # instant death
-            for obj in moveable_objects:
-                if obj["object"].name == "player":
-                    obj["object"].death()
+        # Key presses
+        if 1: # if state is just so that i can close this
+            if keys[pygame.K_SPACE]: # Handle space bar presses
+                # Toggle map tile selector gui
+                if gui_state == None and not key_action_repeat["space"]:
+                    gui_state = "map_tile_selector"
+                    key_action_repeat["space"] = True
 
-        if keys[pygame.K_1]:
-            layer = 1
+                elif gui_state == "map_tile_selector" and not key_action_repeat["space"]:
+                    gui_state = None
+                    key_action_repeat["space"] = True
 
-        if keys[pygame.K_2]:
-            layer = 2
+            if keys[pygame.K_ESCAPE] and not WEB: # Quit if escape is pressed (desktop only, pointless in a browser tab)
+                running = False
+                break
 
-        if keys[pygame.K_l] and not key_action_repeat["l"]: # toggle debug mode
-            for obj in moveable_objects:
-                if obj["object"].name == "player":
-                    obj["object"].debug = not obj["object"].debug
-                    key_action_repeat["l"] = True
+            if keys[pygame.K_p]: # Send map code
+                print("code")
+                print(fn.save_map(grids))
+                print("code")
+
+            if keys[pygame.K_i]: # instant death
+                for obj in moveable_objects:
+                    if obj["object"].name == "player":
+                        obj["object"].death()
+
+            if keys[pygame.K_1]:
+                layer = 1
+
+            if keys[pygame.K_2]:
+                layer = 2
+
+            if keys[pygame.K_l] and not key_action_repeat["l"]: # toggle debug mode
+                for obj in moveable_objects:
+                    if obj["object"].name == "player":
+                        obj["object"].debug = not obj["object"].debug
+                        key_action_repeat["l"] = True
+                    
                 
+            # Reset key presses
+            for key in key_action_repeat:
+                if key_action_repeat[key]:
+                    access_key = key
+                    if key == "space": # Handle special case for space key
+                        access_key = key.upper()
+
+                    if not keys[getattr(pygame, f"K_{access_key}")]:
+                        key_action_repeat[key] = False
+
+        # Handle events
+        aspect_ratio = 1.5 
+        for event in events:
+            if event.type == pygame.QUIT:
+                running = False
+                break
+
+            elif event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
+
+        # Update checkpoint progression
+        checkpoint_progression = fn.checkpoint_progression_updater(checkpoint, checkpoint_progression)
+
+        # Adjust tile size based on screen width and grid size
+        adjust_tile_size()
             
-        # Reset key presses
-        for key in key_action_repeat:
-            if key_action_repeat[key]:
-                access_key = key
-                if key == "space": # Handle special case for space key
-                    access_key = key.upper()
+        # Display debug information
+        sx, sy = screen.get_size()
+        sx, sy = sx / 100, sy / 100
+        if round((screen.get_width() / screen.get_height()), 2) != aspect_ratio:
+            fn.render_text(screen, font, f"Aspect Ratio: {screen.get_width() / screen.get_height():.3f}", offset_x = sx*2, offset_y=sy*1)
+            fn.render_text(screen, font, f"Width: {screen.get_width()}, Height: {screen.get_height()}", offset_x = sx*2, offset_y=sy*4)
+            
+        if currently_placing != None:
+            fn.render_text(screen, font, f"Currently Placing: {currently_placing}", offset_x = sx*85, offset_y=sy*1)
+            fn.render_text(screen, font, f"Layer: {layer}", offset_x = sx*85, offset_y=sy*4)
 
-                if not keys[getattr(pygame, f"K_{access_key}")]:
-                    key_action_repeat[key] = False
+        for obj in moveable_objects:
+            if obj["object"].name == "player":
+                if obj["object"].debug:
+                    fn.render_text(screen, font, f"Player X: {obj['object'].x:.2f}, Player Y: {obj['object'].y:.2f}", offset_x = sx*2, offset_y=sy*7)
+                    fn.render_text(screen, font, f"Velocity X: {obj['object'].velocity_x:.3f}, Velocity Y: {obj['object'].velocity_y:.3f}", offset_x = sx*2, offset_y=sy*10)
+                    fn.render_text(screen, font, f"Touching Floor: {obj['object'].touching_floor}", offset_x = sx*2, offset_y=sy*13)
+                    fn.render_text(screen, font, f"Frame: {obj['object'].frame}", offset_x = sx*2, offset_y=sy*16)
+                    fn.render_text(screen, font, f"FPS: {clock.get_fps():.2f}", offset_x = sx*2, offset_y=sy*19)
 
-    # Handle events
-    aspect_ratio = 1.5 
-    for event in events:
-        if event.type == pygame.QUIT:
-            running = False
-            break
+        # Flip to next frame
+        pygame.display.flip()
+        await asyncio.sleep(0)  # Hand control back to the browser
 
-        elif event.type == pygame.VIDEORESIZE:
-            screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
+    if not WEB:
+        pygame.quit()
 
-    # Update checkpoint progression
-    checkpoint_progression = fn.checkpoint_progression_updater(checkpoint, checkpoint_progression)
 
-    # Adjust tile size based on screen width and grid size
-    adjust_tile_size()
-        
-    # Display debug information
-    sx, sy = screen.get_size()
-    sx, sy = sx / 100, sy / 100
-    if round((screen.get_width() / screen.get_height()), 2) != aspect_ratio:
-        fn.render_text(screen, font, f"Aspect Ratio: {screen.get_width() / screen.get_height():.3f}", offset_x = sx*2, offset_y=sy*1)
-        fn.render_text(screen, font, f"Width: {screen.get_width()}, Height: {screen.get_height()}", offset_x = sx*2, offset_y=sy*4)
-        
-    if currently_placing != None:
-        fn.render_text(screen, font, f"Currently Placing: {currently_placing}", offset_x = sx*85, offset_y=sy*1)
-        fn.render_text(screen, font, f"Layer: {layer}", offset_x = sx*85, offset_y=sy*4)
-
-    for obj in moveable_objects:
-        if obj["object"].name == "player":
-            if obj["object"].debug:
-                fn.render_text(screen, font, f"Player X: {obj['object'].x:.2f}, Player Y: {obj['object'].y:.2f}", offset_x = sx*2, offset_y=sy*7)
-                fn.render_text(screen, font, f"Velocity X: {obj['object'].velocity_x:.3f}, Velocity Y: {obj['object'].velocity_y:.3f}", offset_x = sx*2, offset_y=sy*10)
-                fn.render_text(screen, font, f"Touching Floor: {obj['object'].touching_floor}", offset_x = sx*2, offset_y=sy*13)
-                fn.render_text(screen, font, f"Frame: {obj['object'].frame}", offset_x = sx*2, offset_y=sy*16)
-                fn.render_text(screen, font, f"FPS: {clock.get_fps():.2f}", offset_x = sx*2, offset_y=sy*19)
-
-    # Flip to next frame
-    pygame.display.flip()
-
-pygame.quit()
+# Desktop entry point. In the browser, pygodide calls main() itself.
+if __name__ == "__main__" and not WEB:
+    asyncio.run(main())
