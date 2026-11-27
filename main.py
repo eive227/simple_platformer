@@ -3,6 +3,7 @@ import functions as fn
 
 # True when running in the browser (Pyodide reports "emscripten")
 WEB = sys.platform == "emscripten"
+FRAME_TIME = 1 / 60  # Target seconds per frame
 
 # If 1: is used in several places to allow for closing of code blocks to keep it neat
 if 1:  # Initiable variables
@@ -309,6 +310,15 @@ def adjust_tile_size():
 
 
 
+async def end_frame(frame_start):
+    # Desktop: clock.tick(60) at the top of the loop already paces the game.
+    # Browser: clock.tick() would busy-wait and block the page from painting, so instead we sleep
+    # for the rest of the frame. That sleep is when the browser actually gets to draw the canvas.
+    if WEB:
+        await asyncio.sleep(max(0.0, FRAME_TIME - (time.perf_counter() - frame_start)))
+    else:
+        await asyncio.sleep(0)
+
 # Main loop
 # The loops live inside an async function so the browser gets control back every frame
 # (that is what `await asyncio.sleep(0)` does). Variables that are reassigned inside the loops
@@ -321,7 +331,8 @@ async def main():
     running = True
     device_selection_screen = True
     while device_selection_screen:
-        clock.tick(60)
+        frame_start = time.perf_counter()
+        clock.tick() if WEB else clock.tick(60)
         screen.fill((40,40,40))
         events = pygame.event.get()
         fn.render_text(screen, font, "Please Select Device", offset_x=screen.get_width()*0.3, offset_y=screen.get_height()*0.2)
@@ -341,11 +352,12 @@ async def main():
 
         adjust_tile_size()
         pygame.display.flip()
-        await asyncio.sleep(0)  # Hand control back to the browser
+        await end_frame(frame_start)  # Hand control back to the browser
 
     touch_points = {} # Must persist between frames so held fingers keep their buttons pressed
     while running:
-        clock.tick(60)  # Limit the frame rate to 60 FPS
+        frame_start = time.perf_counter()
+        clock.tick() if WEB else clock.tick(60)  # Limit the frame rate to 60 FPS (browser pacing is in end_frame)
         tick+=1
         grids = (grid, grid_2) # Bundle grid layers (bad system but i dont need many layers)
         keys = pygame.key.get_pressed() # Get key presses
@@ -464,7 +476,7 @@ async def main():
 
         # Flip to next frame
         pygame.display.flip()
-        await asyncio.sleep(0)  # Hand control back to the browser
+        await end_frame(frame_start)  # Hand control back to the browser
 
     if not WEB:
         pygame.quit()
