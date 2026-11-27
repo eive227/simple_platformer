@@ -4,6 +4,8 @@ import functions as fn
 # True when running in the browser (Pyodide reports "emscripten")
 WEB = sys.platform == "emscripten"
 FRAME_TIME = 1 / 60  # Target seconds per frame
+# pygame.SCALED is left out in the browser: with it the canvas stayed blank until the page was resized
+DISPLAY_FLAGS = pygame.RESIZABLE if WEB else (pygame.SCALED | pygame.RESIZABLE)
 
 # If 1: is used in several places to allow for closing of code blocks to keep it neat
 if 1:  # Initiable variables
@@ -24,7 +26,7 @@ if 1:  # Initiable variables
     if WEB:
         screen_width, screen_height = 960, 640
 
-    screen = pygame.display.set_mode((screen_width, screen_height), pygame.SCALED | pygame.RESIZABLE)
+    screen = pygame.display.set_mode((screen_width, screen_height), DISPLAY_FLAGS)
 
     tile_size = screen.get_width() // grid_size
     grid, grid_2 = {}, {} # grid 1 and grid 2, grid 2 is meant for non visible tiles 
@@ -328,6 +330,12 @@ async def main():
     global gui_state, currently_placing, placement_queue, layer
     global checkpoint_progression, device_button_interaction
 
+    if WEB:
+        # Give the page a moment to finish laying out, then create the display again so the canvas
+        # is attached and drawn from the first frame instead of waiting for a window resize
+        await asyncio.sleep(0.25)
+        screen = pygame.display.set_mode((screen_width, screen_height), DISPLAY_FLAGS)
+
     running = True
     device_selection_screen = True
     while device_selection_screen:
@@ -348,7 +356,7 @@ async def main():
                 break
 
             elif event.type == pygame.VIDEORESIZE:
-                screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
+                screen = pygame.display.set_mode((event.w, event.h), DISPLAY_FLAGS)
 
         adjust_tile_size()
         pygame.display.flip()
@@ -446,7 +454,7 @@ async def main():
                 break
 
             elif event.type == pygame.VIDEORESIZE:
-                screen = pygame.display.set_mode((event.w, event.h), pygame.SCALED | pygame.RESIZABLE)
+                screen = pygame.display.set_mode((event.w, event.h), DISPLAY_FLAGS)
 
         # Update checkpoint progression
         checkpoint_progression = fn.checkpoint_progression_updater(checkpoint, checkpoint_progression)
