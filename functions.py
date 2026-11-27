@@ -41,9 +41,9 @@ def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     bottom = True
                 else:
-                    for (gx, gy, _layer), ctile in grid.items():
+                    for (kx, ky, kl), ctile in grid.items():
                         if tile == ctile:
-                            del grid[(gx, gy, _layer)]
+                            del grid[(kx, ky, kl)]
                             break
                 collision_tile_type = tile.tile_type
 
@@ -51,9 +51,9 @@ def check_collisions_with_grid_y(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     top = True
                 else:
-                    for (gx, gy, _layer), ctile in grid.items():
+                    for (kx, ky, kl), ctile in grid.items():
                         if tile == ctile:
-                            del grid[(gx, gy, _layer)]
+                            del grid[(kx, ky, kl)]
                             break
                 collision_tile_type = tile.tile_type
 
@@ -94,9 +94,9 @@ def check_collisions_with_grid_x(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     right = True
                 else:
-                    for (gx, gy, _layer), ctile in grid.items():
+                    for (kx, ky, kl), ctile in grid.items():
                         if tile == ctile:
-                            del grid[(gx, gy, _layer)]
+                            del grid[(kx, ky, kl)]
                             break
                 collision_tile_type = tile.tile_type
 
@@ -104,9 +104,9 @@ def check_collisions_with_grid_x(x, y, w, h, grid, grid_2):
                 if tile.tile_type not in collectable_objects:
                     left = True
                 else:
-                    for (gx, gy, _layer), ctile in grid.items():
+                    for (kx, ky, kl), ctile in grid.items():
                         if tile == ctile:
-                            del grid[(gx, gy, _layer)]
+                            del grid[(kx, ky, kl)]
                             break
                         
                 collision_tile_type = tile.tile_type
@@ -307,10 +307,10 @@ def save_map(map_tiles):
     grid, grid_2 = map_tiles[0], map_tiles[1]
     tokens = [] # Creates token list
     for key, tile in grid.items(): # Loops through all tiles on layer 1
-        tokens.append(f"{tile.x},{tile.y},{tile.layer},{tile.tile_type},{tile.dir},{"1"}") # Extracts data from object
+        tokens.append(f"{tile.x},{tile.y},{tile.layer},{tile.tile_type},{tile.dir},1") # Extracts data from object
 
     for key, tile in grid_2.items(): # Loops through all tiles on layer 2
-        tokens.append(f"{tile.x},{tile.y},{tile.layer},{tile.tile_type},{tile.dir},{"2"}") # Extracts data from object
+        tokens.append(f"{tile.x},{tile.y},{tile.layer},{tile.tile_type},{tile.dir},2") # Extracts data from object
 
     raw = '|'.join(tokens) # Creates a string with spacers
     compressed = zlib.compress(raw.encode('utf-8'), level=9) # Compresses the string with zlib
@@ -453,7 +453,7 @@ def render_particles(screen, particles, cam, tile_size):
         return  # No particles to render
     
     else:
-        for particle in particles:
+        for particle in particles[:]:  # Iterate over a copy so removing particles doesn't skip the next one
             particle["x"] += particle["velocity_x"]  # Update the particle's x position
             particle["y"] += particle["velocity_y"]  # Update the particle's y position
             screen_x = particle["x"] * tile_size - cam[0] + tile_size / 2  # Center the particle on the tile
