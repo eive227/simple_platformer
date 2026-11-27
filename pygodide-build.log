@@ -1,0 +1,33 @@
+Pygodide build log
+Started: 2026-11-27T10:36:54.284375+00:00
+Pygodide version: 0.1.0
+Python: 3.12.16 (main, Oct 26 2026, 02:48:44) [GCC 15.2.0]
+Platform: Linux-7.0.0-1020-azure-x86_64-with-glibc2.43
+Working directory: /home/runner/work/simple_platformer/simple_platformer
+Source directory: /home/runner/work/simple_platformer/simple_platformer
+Output directory: /home/runner/work/simple_platformer/simple_platformer/build
+Serve after build: False
+CLI app override: (none)
+CLI dependencies: (none)
+CLI canvas-width: (none)
+CLI canvas-height: (none)
+Auto-async: True
+
+Build output:
+Building /home/runner/work/simple_platformer/simple_platformer
+App entrypoint: main:main (default)
+Canvas aspect: not found (using default 800x600; could not resolve set_mode size)
+Canvas: fixed 800x600 (as-is)
+Package files: 35 (auto-discovery)
+Dependency sources:
+  - requirements.txt: pygame-ce
+Resolved dependencies: pygame-ce
+Install strategy:
+  - pyodide.loadPackage: pygame-ce
+  - micropip.install: (none)
+Auto async: already async (main:main)
+App archive: app.zip (35 files)
+Favicon: bundled default
+
+Result: success
+Finished: 2026-11-27T10:36:54.506528+00:00
