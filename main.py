@@ -343,12 +343,12 @@ async def main():
         pygame.display.flip()
         await asyncio.sleep(0)  # Hand control back to the browser
 
+    touch_points = {} # Must persist between frames so held fingers keep their buttons pressed
     while running:
         clock.tick(60)  # Limit the frame rate to 60 FPS
         tick+=1
         grids = (grid, grid_2) # Bundle grid layers (bad system but i dont need many layers)
         keys = pygame.key.get_pressed() # Get key presses
-        touch_points = {}
         touch_controls = {}
         events = pygame.event.get()
 
